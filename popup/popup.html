@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sticky Notes</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Sticky Notes</h1>
+      <button id="add" type="button">New note<kbd id="shortcut" hidden></kbd></button>
+    </header>
+    <p id="status" role="status" hidden>Notes can't stick to this page.</p>
+    <main id="pages"></main>
+    <p id="empty" hidden>No notes yet. Open a page and stick one on it.</p>
+    <script src="../lib/notes.js"></script>
+    <script src="../lib/ui.js"></script>
+    <script src="../lib/tabs.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
