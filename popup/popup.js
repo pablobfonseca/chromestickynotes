@@ -55,12 +55,14 @@ document.getElementById("add").addEventListener("click", async () => {
   else statusEl.hidden = false;
 });
 
-chrome.commands.getAll().then((commands) => {
+async function showShortcut() {
+  const commands = await chrome.commands.getAll();
   const shortcut = commands.find((command) => command.name === "add-note")?.shortcut;
   if (!shortcut) return;
   shortcutEl.textContent = shortcut;
   shortcutEl.hidden = false;
-});
+}
 
 chrome.storage.onChanged.addListener(render);
+showShortcut();
 render();
