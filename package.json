@@ -1,0 +1,7 @@
+{
+  "name": "chromestickynotes",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
