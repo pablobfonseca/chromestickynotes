@@ -6,6 +6,7 @@
   const entries = new Map();
   let pageKey = StickyNotes.pageKey(location.href);
   let root;
+  let reportedCount;
 
   // A reloaded or updated extension injects this script again; drop the UI its dead predecessor left behind.
   document.querySelector(`[${HOST_ATTRIBUTE}]`)?.remove();
@@ -123,10 +124,21 @@
     paint(entry);
   }
 
+  // The service worker shows this count on the toolbar icon. Storage echoes of every keystroke land here, so only changes are sent.
+  function reportCount() {
+    if (entries.size === reportedCount) return;
+    reportedCount = entries.size;
+    // An orphaned script left by an extension reload can no longer reach the worker.
+    try {
+      chrome.runtime.sendMessage({ type: "note-count", count: entries.size }).catch(() => {});
+    } catch {}
+  }
+
   async function showPage() {
     pageKey = StickyNotes.pageKey(location.href);
     for (const id of entries.keys()) sync({ id });
     for (const note of await StickyNotes.loadNotes()) sync({ id: note.id, note });
+    reportCount();
   }
 
   function addNote() {
@@ -138,7 +150,9 @@
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local") StickyNotes.noteChanges(changes).forEach(sync);
+    if (area !== "local") return;
+    StickyNotes.noteChanges(changes).forEach(sync);
+    reportCount();
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -153,6 +167,12 @@
     if (StickyNotes.pageKey(location.href) !== pageKey) showPage();
   });
   window.addEventListener("resize", () => entries.forEach((entry) => place(entry)));
+  // Chrome clears the tab's badge when a page comes back from the back/forward cache.
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    reportedCount = undefined;
+    reportCount();
+  });
 
   showPage();
 })();

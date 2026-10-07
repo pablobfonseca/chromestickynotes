@@ -131,3 +131,11 @@ test("clampPosition pins to the top-left edge when the viewport is smaller than 
 
   assert.deepEqual(position, { x: 8, y: 8 });
 });
+
+test("badgeText shows the count, blank for none, capped at 99+", () => {
+  assert.equal(StickyNotes.badgeText(0), "");
+  assert.equal(StickyNotes.badgeText(3), "3");
+  assert.equal(StickyNotes.badgeText(99), "99");
+  assert.equal(StickyNotes.badgeText(100), "99+");
+  for (const invalid of [-1, 1.5, "3", undefined]) assert.equal(StickyNotes.badgeText(invalid), "");
+});
