@@ -29,5 +29,12 @@
       "suggested_key": { "default": "Alt+Shift+N" },
       "description": "Add a sticky note to the current page"
     }
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["note/note.html"],
+      "matches": ["http://*/*", "https://*/*"],
+      "use_dynamic_url": true
+    }
+  ]
 }
