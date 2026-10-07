@@ -215,6 +215,37 @@ assert.equal(await popup.locator("#empty").isVisible(), true);
 await popup.screenshot({ path: `${SHOTS}/10-popup-empty.png` });
 step("popup empty state");
 
+const full = await context.newPage();
+watch(full);
+await full.goto(`${base}/full`);
+await settle(full);
+const freeBytes = await sw.evaluate(async () => {
+  const { QUOTA_BYTES } = chrome.storage.local;
+  const used = await chrome.storage.local.getBytesInUse(null);
+  await chrome.storage.local.set({ filler: "x".repeat(QUOTA_BYTES - used - 64) });
+  return QUOTA_BYTES - (await chrome.storage.local.getBytesInUse(null));
+});
+assert.ok(freeBytes < 100, `storage should be nearly full, ${freeBytes} bytes free`);
+const cdp = await context.newCDPSession(full);
+const showsUnsaved = async () => {
+  const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+  return nodes.some((node) => String(node.name?.value ?? "").includes("Not saved."));
+};
+const storedNotes = async () => (await store()).filter((item) => typeof item === "object");
+assert.equal(await addNote(full), true);
+await settle(full);
+await full.keyboard.type("Kept after a failed save");
+await settle(full);
+assert.equal((await storedNotes()).length, 0);
+assert.equal(await showsUnsaved(), true);
+await full.screenshot({ path: `${SHOTS}/11-not-saved.png` });
+await sw.evaluate(() => chrome.storage.local.remove("filler"));
+await full.keyboard.type(", then saved");
+await settle(full);
+assert.deepEqual((await storedNotes()).map((n) => n.text), ["Kept after a failed save, then saved"]);
+assert.equal(await showsUnsaved(), false);
+step("failed save shows on the note and clears once a save succeeds");
+
 assert.deepEqual(errors, []);
 step("no console or page errors");
 

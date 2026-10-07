@@ -3,6 +3,7 @@
   globalThis.stickyNotesRunning = true;
 
   const HOST_ATTRIBUTE = "data-sticky-notes-host";
+  const UNSAVED_MESSAGE = "Not saved. Copy your text before you leave this page.";
   const entries = new Map();
   let pageKey = StickyNotes.pageKey(location.href);
   let root;
@@ -47,10 +48,21 @@
     place(entry);
   }
 
+  // Writes resolve in order, so only the newest attempt decides; an orphaned script throws instead of rejecting.
+  function save(entry) {
+    const attempt = ++entry.saves;
+    const settle = (saved) => {
+      if (attempt === entry.saves) entry.status.textContent = saved ? "" : UNSAVED_MESSAGE;
+    };
+    Promise.resolve()
+      .then(() => StickyNotes.saveNote(entry.note))
+      .then(() => settle(true), () => settle(false));
+  }
+
   function update(entry, patch) {
     entry.note = { ...entry.note, ...patch };
     paint(entry);
-    StickyNotes.saveNote(entry.note);
+    save(entry);
   }
 
   function enableDrag(entry, handle) {
@@ -65,7 +77,7 @@
       const drop = () => {
         handle.removeEventListener("pointermove", drag);
         entry.el.classList.remove("dragging");
-        StickyNotes.saveNote(entry.note);
+        save(entry);
       };
       handle.setPointerCapture(down.pointerId);
       entry.el.classList.add("dragging");
@@ -94,9 +106,10 @@
         () => textarea.value.trim() !== "",
       ),
     );
-    const el = h("div", { className: "note" }, bar, textarea);
+    const status = h("p", { className: "status", role: "alert" });
+    const el = h("div", { className: "note" }, bar, textarea, status);
     el.style.setProperty("--tilt", `${tilt(note.id)}deg`);
-    const entry = { note, el, textarea, swatches };
+    const entry = { note, el, textarea, swatches, status, saves: 0 };
 
     textarea.addEventListener("input", () => update(entry, { text: textarea.value }));
     enableDrag(entry, bar);
