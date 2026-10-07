@@ -97,7 +97,7 @@ console.log("ok  orphaned page gets a fresh script, stale UI replaced");
 
 // The content script's http(s) guard: an about:blank tab accepts the injection (so Chrome is not the one
 // refusing) but must answer the message with ok: false and keep the note out of storage.
-// Chrome hides the url of a tab it will not inject into, so the tab is found by what a script sees there.
+// The extension cannot see this tab's url, so the tab is found by what a script sees there.
 const opener = await context.newPage();
 await opener.goto(`${base}/`);
 await Promise.all([context.waitForEvent("page"), opener.evaluate(() => window.open("about:blank"))]);
