@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -44,12 +45,34 @@ await popup.setViewportSize({ width: 360, height: 420 });
 await popup.goto(`chrome-extension://${new URL(sw.url()).host}/popup/popup.html`);
 await popup.waitForSelector(".page");
 await popup.waitForTimeout(700);
-const widths = await popup.evaluate(() => ({
-  scrollWidth: document.documentElement.scrollWidth,
-  body: document.body.offsetWidth,
-  pages: [...document.querySelectorAll(".page")].map((page) => page.offsetWidth),
-}));
-console.log(JSON.stringify(widths));
+const measured = await popup.evaluate(() => {
+  const root = document.documentElement;
+  const bodyRect = document.body.getBoundingClientRect();
+  const bodyStyle = getComputedStyle(document.body);
+  return {
+    scrollWidth: root.scrollWidth,
+    clientWidth: root.clientWidth,
+    contentLeft: bodyRect.left + parseFloat(bodyStyle.paddingLeft),
+    contentRight: bodyRect.right - parseFloat(bodyStyle.paddingRight),
+    pages: [...document.querySelectorAll(".page")].map((page) => {
+      const { left, right } = page.getBoundingClientRect();
+      return { left, right };
+    }),
+  };
+});
 await popup.screenshot({ path: `${SHOTS}/12-long-title.png` });
 await context.close();
-process.exit(widths.scrollWidth === 360 && widths.pages.every((width) => width === 328) ? 0 : 1);
+
+assert.ok(measured.pages.length > 0, "popup rendered no .page elements");
+assert.equal(
+  measured.scrollWidth,
+  measured.clientWidth,
+  `popup scrolls horizontally: scrollWidth ${measured.scrollWidth} > clientWidth ${measured.clientWidth}`,
+);
+for (const [index, page] of measured.pages.entries()) {
+  assert.ok(
+    page.left >= measured.contentLeft && page.right <= measured.contentRight,
+    `.page ${index} spans ${page.left}-${page.right}, outside the body content box ${measured.contentLeft}-${measured.contentRight}`,
+  );
+}
+console.log("ok  long titles and hosts do not widen the popup");
