@@ -19,7 +19,7 @@ const server = http.createServer((req, res) => {
   res.end(`<!doctype html><title>Page ${name}</title>
     <body ${style("margin:0;background:#fff;font:16px system-ui")}>
     <h1 ${style("margin:40px")}>Page ${name}</h1><p ${style("margin:40px;height:2000px")}>Lorem ipsum</p>
-    ${name === "/csp" ? "" : `<script>window.__keys=[];document.addEventListener("keydown",e=>__keys.push(e.key))</script>`}`);
+    ${name === "/csp" ? "" : `<script>window.__keys=[];document.addEventListener("keydown",e=>__keys.push(e.key),true)</script>`}`);
 });
 await new Promise((resolve) => server.listen(0, resolve));
 const base = `http://localhost:${server.address().port}`;
@@ -72,8 +72,14 @@ assert.deepEqual(await page.evaluate(() => window.__keys), []);
 await page.screenshot({ path: `${SHOTS}/1-added.png` });
 step("add note, type, persisted; page saw no keydown events");
 await page.mouse.click(100, 400);
-console.log("    page-side window.find('Buy milk') ->", await page.evaluate(() => window.find("Buy milk")));
-console.log("    page-side window.find('zzzz') ->", await page.evaluate(() => window.find("zzzz")));
+assert.equal(await page.evaluate(() => window.find("Buy milk")), false);
+assert.equal(await page.evaluate(() => document.documentElement.innerText.includes("Buy milk")), false);
+assert.equal(
+  page.frames().some((frame) => frame.url().startsWith("chrome-extension://")),
+  true,
+  "note renders in an extension frame",
+);
+step("page cannot find note text; note lives in an extension frame");
 
 await page.mouse.move(note.x + 170, note.y + 17);
 await page.mouse.down();
