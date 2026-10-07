@@ -95,6 +95,26 @@ assert.equal(await hosts(), 1);
 await page.screenshot({ path: `${SHOTS}/11-after-reload.png` });
 console.log("ok  orphaned page gets a fresh script, stale UI replaced");
 
+// The content script's http(s) guard: an about:blank tab accepts the injection (so Chrome is not the one
+// refusing) but must answer the message with ok: false and keep the note out of storage.
+// Chrome hides the url of a tab it will not inject into, so the tab is found by what a script sees there.
+const opener = await context.newPage();
+await opener.goto(`${base}/`);
+await Promise.all([context.waitForEvent("page"), opener.evaluate(() => window.open("about:blank"))]);
+const noteCount = () => extensionPage.evaluate(async () => Object.keys(await chrome.storage.local.get(null)).length);
+const before = await noteCount();
+const probe = await extensionPage.evaluate(async () => {
+  for (const tab of await chrome.tabs.query({})) {
+    const [injection] = await chrome.scripting
+      .executeScript({ target: { tabId: tab.id }, func: () => location.protocol })
+      .catch(() => []);
+    if (injection?.result === "about:") return { protocol: injection.result, added: await addNoteToTab(tab.id) };
+  }
+});
+assert.deepEqual(probe, { protocol: "about:", added: false });
+assert.equal(await noteCount(), before);
+console.log("ok  non-http tab refuses a note");
+
 assert.deepEqual(errors, []);
 console.log("ok  no console or page errors");
 await context.close();
