@@ -102,6 +102,14 @@ var NOTE_CSS = `
   }
   textarea::placeholder { color: rgb(58 49 34 / 0.55); }
 
+  .status {
+    margin: -8px 14px 12px;
+    color: #a8231c;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status:empty { display: none; }
+
   @media (prefers-reduced-motion: reduce) {
     .note { animation: none; transition: none; }
   }
