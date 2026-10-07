@@ -107,7 +107,7 @@
 
   function sync({ id, note }) {
     const entry = entries.get(id);
-    if (!note || note.url !== pageKey) {
+    if (!note || StickyNotes.pageKey(note.url) !== pageKey) {
       entry?.el.remove();
       entries.delete(id);
       return;

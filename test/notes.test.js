@@ -94,6 +94,25 @@ test("groupByPage puts the current page first, then the most recently noted", ()
   );
 });
 
+test("groupByPage merges a legacy tracked URL into its page", () => {
+  const pages = StickyNotes.groupByPage(
+    [
+      { id: "a", url: "https://a.test/?utm_source=x", title: "A", createdAt: 1 },
+      { id: "b", url: "https://b.test/", title: "B", createdAt: 4 },
+      { id: "c", url: "https://a.test/", title: "A", createdAt: 3 },
+    ],
+    "https://a.test/",
+  );
+
+  assert.deepEqual(
+    pages.map((page) => [page.url, page.notes.map((note) => note.id)]),
+    [
+      ["https://a.test/", ["a", "c"]],
+      ["https://b.test/", ["b"]],
+    ],
+  );
+});
+
 test("clampPosition keeps a note inside the viewport", () => {
   const size = { width: 240, height: 120 };
   const viewport = { width: 1000, height: 600 };

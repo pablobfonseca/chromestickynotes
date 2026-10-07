@@ -16,7 +16,7 @@ There is no build step. Chrome 123 or newer is required.
 - The note stays on that page and shows up again on your next visit.
 - The toolbar popup lists every note, grouped by page, with a link back to each page.
 
-A page is identified by its URL without the `#fragment`, so `/watch?v=a` and `/watch?v=b` hold separate notes.
+A page is identified by its URL without the `#fragment` and tracking parameters (`utm_*`, `fbclid`, `gclid` and similar), so `/watch?v=a` and `/watch?v=b` hold separate notes.
 
 Notes are stored in `chrome.storage.local`. They stay on this machine and are never sent anywhere.
 
