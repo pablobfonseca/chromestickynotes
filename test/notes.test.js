@@ -10,6 +10,22 @@ test("pageKey keeps the query and drops the hash", () => {
   assert.equal(StickyNotes.pageKey("https://example.com"), "https://example.com/");
 });
 
+test("pageKey drops tracking parameters and keeps the rest", () => {
+  assert.equal(
+    StickyNotes.pageKey("https://example.com/a?id=1&utm_source=a&fbclid=b&gclid=c"),
+    "https://example.com/a?id=1",
+  );
+  assert.equal(StickyNotes.pageKey("https://example.com/a?utm_medium=x"), "https://example.com/a");
+  assert.equal(StickyNotes.pageKey("https://example.com/a?q=a%20b&utm_source=x"), "https://example.com/a?q=a%20b");
+  assert.equal(StickyNotes.pageKey("https://example.com/a?UTM_Source=x&b=2"), "https://example.com/a?b=2");
+  assert.equal(StickyNotes.pageKey("https://example.com/a?z=1&utm_x=1&a=2"), "https://example.com/a?z=1&a=2");
+});
+
+test("pageKey is idempotent", () => {
+  const tracked = "https://example.com/a?q=a%20b&utm_source=x&gclid=y#top";
+  assert.equal(StickyNotes.pageKey(StickyNotes.pageKey(tracked)), StickyNotes.pageKey(tracked));
+});
+
 test("createNote starts empty, keyed to its page", () => {
   const note = StickyNotes.createNote({
     url: "https://example.com/docs#intro",
