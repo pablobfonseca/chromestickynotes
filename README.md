@@ -29,6 +29,13 @@ A note lives in the DOM of the page it is stuck on, so that page's scripts can r
 npm test
 ```
 
+The browser checks drive a real Chromium through Playwright. After `npm install`, download the browser once, then run them:
+
+```sh
+npx playwright install chromium
+npm run e2e
+```
+
 | Path | What it holds |
 | --- | --- |
 | `lib/notes.js` | Note model and storage, shared by every context |
