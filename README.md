@@ -21,7 +21,7 @@ A page is identified by its URL without the `#fragment` and tracking parameters 
 
 Notes are stored in `chrome.storage.local`. They stay on this machine and are never sent anywhere.
 
-A note lives in the DOM of the page it is stuck on, so that page's scripts can read it (through `window.find`, or by watching keystrokes). Don't put secrets in a note on a site you don't trust.
+Each note is drawn in its own extension frame, so the page's scripts cannot read its text or see what you type into it. The page can still tell that a note is there, and a page that removes the frame hides the note until the next visit.
 
 ## Develop
 
@@ -41,7 +41,8 @@ npm run e2e
 | `lib/notes.js` | Note model and storage, shared by every context |
 | `lib/ui.js` | DOM helpers and styles shared by the page and the popup |
 | `lib/tabs.js` | Asking a tab to add a note, injecting the content script if it is missing |
-| `content/` | The notes rendered on web pages, inside a closed shadow root |
+| `content/` | Keeps one extension frame per note on the page, inside a closed shadow root, and moves it |
+| `note/` | The note itself: paper, text and colour, drawn in a frame the page cannot read |
 | `popup/` | The toolbar popup |
 | `background.js` | The keyboard shortcut and the toolbar badge |
 
