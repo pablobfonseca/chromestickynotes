@@ -7,7 +7,7 @@ Stick a note on any web page and find it there when you come back.
 1. Open `chrome://extensions` and turn on **Developer mode**.
 2. Click **Load unpacked** and pick this folder.
 
-There is no build step. Chrome 123 or newer is required.
+There is no build step. Chrome 140 or newer is required.
 
 ## Use
 
@@ -20,7 +20,7 @@ There is no build step. Chrome 123 or newer is required.
 
 A page is identified by its URL without the `#fragment` and tracking parameters (`utm_*`, `fbclid`, `gclid` and similar), so `/watch?v=a` and `/watch?v=b` hold separate notes.
 
-Notes are stored in `chrome.storage.local`. They stay on this machine and are never sent anywhere.
+Notes are stored in `chrome.storage.local`. They stay on this machine and are never sent anywhere. The script that runs on a web page cannot read that storage: it asks the extension's service worker, which hands a page only the notes on its own origin and accepts only notes for it.
 
 A note lives in the DOM of the page it is stuck on, so that page's scripts can read it (through `window.find`, or by watching keystrokes). Don't put secrets in a note on a site you don't trust.
 
@@ -39,11 +39,11 @@ npm run e2e
 
 | Path | What it holds |
 | --- | --- |
-| `lib/notes.js` | Note model and storage, shared by every context |
+| `lib/notes.js` | Note model, validation and storage, shared by every context |
 | `lib/ui.js` | DOM helpers and styles shared by the page and the popup |
 | `lib/tabs.js` | Asking a tab to add a note, injecting the content script if it is missing |
 | `content/` | The notes rendered on web pages, inside a closed shadow root |
 | `popup/` | The toolbar popup |
-| `background.js` | The keyboard shortcut and the toolbar badge |
+| `background.js` | The keyboard shortcut, the toolbar badge and the storage broker |
 
 After changing code, press the reload button on the extension's card in `chrome://extensions`.
