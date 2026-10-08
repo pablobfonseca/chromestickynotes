@@ -259,6 +259,20 @@ await settle(full);
 assert.deepEqual((await storedNotes()).map((n) => n.text), [`Kept${overflow}, then saved`]);
 step("failed save shows on the note and clears once a save succeeds");
 
+[note] = await storedNotes();
+await full.mouse.move(note.x + 170, note.y + 17);
+await full.mouse.down();
+await full.mouse.move(400, 300, { steps: 4 });
+assert.equal(await hostAt(full, 100, 600), true, "the drag overlay covers the page");
+// A release outside the window never reaches the page; the next move it sees has no button held.
+const fullCdp = await context.newCDPSession(full);
+await fullCdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 300, y: 300, buttons: 0 });
+await settle(full);
+assert.equal(await hostAt(full, 100, 600), false, "the page is clickable again");
+assert.notDeepEqual(((await storedNotes())[0]).x, note.x);
+await full.mouse.up();
+step("drag released outside the window ends on the next move");
+
 assert.deepEqual(errors, []);
 step("no console or page errors");
 

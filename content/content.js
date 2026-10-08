@@ -74,30 +74,38 @@
 
   // Pointer events stop reaching a frame that moves under them, so this document runs the drag behind an overlay that
   // keeps the pointer off the frame. A press that began in the frame cannot be captured here: moves outside the viewport
-  // are lost and only the release arrives, so the release places the note too.
+  // are lost and only the release arrives, so the release places the note too. A release outside the window may never
+  // arrive at all; the next move with no button held ends the drag instead.
   function drag(entry, grab) {
     if (entry.start) return;
     entry.start = place(entry);
     const down = pagePoint(entry, grab);
     const overlay = h("div", { className: "drag-overlay" });
-    // The page can dispatch pointer events on its own window; only the user moves a note.
-    const move = (event) => {
-      if (!event.isTrusted) return;
+    const follow = (event) => {
       const position = {
         x: entry.start.x + Math.round(event.clientX - down.x),
         y: entry.start.y + Math.round(event.clientY - down.y),
       };
       entry.note = { ...entry.note, ...place(entry, position) };
     };
-    const drop = (event) => {
-      if (!event.isTrusted) return;
-      move(event);
+    const finish = () => {
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", drop, true);
       overlay.remove();
       entry.start = undefined;
       entry.el.classList.remove("dragging");
       StickyNotes.patchNote(entry.note.id, { x: entry.note.x, y: entry.note.y });
+    };
+    // The page can dispatch pointer events on its own window; only the user moves a note.
+    const move = (event) => {
+      if (!event.isTrusted) return;
+      if (event.buttons) follow(event);
+      else finish();
+    };
+    const drop = (event) => {
+      if (!event.isTrusted) return;
+      follow(event);
+      finish();
     };
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", drop, true);
