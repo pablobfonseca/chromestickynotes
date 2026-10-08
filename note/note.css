@@ -25,7 +25,6 @@ body {
   touch-action: none;
   user-select: none;
 }
-.note.dragging .bar { cursor: grabbing; }
 
 .swatches { display: flex; margin-right: auto; }
 .swatches,

@@ -48,6 +48,7 @@ const addNote = async (page) => {
 };
 const hostAt = (page, x, y) =>
   page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.hasAttribute("data-sticky-notes-host") ?? false, [x, y]);
+const noteFrame = (page, id) => page.frames().find((frame) => frame.url().includes(`id=${id}`));
 const hasHost = (page) => page.evaluate(() => !!document.querySelector("[data-sticky-notes-host]"));
 const settle = (page) => page.waitForTimeout(250);
 const step = (name) => console.log(`ok  ${name}`);
@@ -190,14 +191,18 @@ assert.equal(await popup.locator("#status").isVisible(), true);
 step("popup reports pages that cannot hold notes");
 
 await csp.bringToFront();
+// Headless Chromium misroutes clicks into note frames once their tab has been in the background; real Chrome does not.
+await csp.reload();
+await settle(csp);
 let notes = (await store()).sort((a, b) => a.createdAt - b.createdAt);
 const target = notes[0];
-await csp.mouse.move(target.x + 120, target.y + 60);
-await csp.mouse.click(target.x + 240 - 6 - 12, target.y + 17);
+const targetDelete = noteFrame(csp, target.id).locator(".delete");
+await targetDelete.click();
 await settle(csp);
+assert.equal(await targetDelete.getAttribute("aria-label"), "Confirm delete");
 assert.equal((await store()).length, 2);
 await csp.screenshot({ path: `${SHOTS}/9-armed.png` });
-await csp.mouse.click(target.x + 240 - 6 - 30, target.y + 17);
+await targetDelete.click();
 await settle(csp);
 notes = await store();
 assert.deepEqual(notes.map((n) => n.id), [notes[0].id]);
@@ -207,7 +212,7 @@ step("on-page delete asks once, then deletes");
 assert.equal(await addNote(csp), true);
 await settle(csp);
 const blank = (await store()).find((n) => n.text === "");
-await csp.mouse.click(blank.x + 240 - 6 - 12, blank.y + 17);
+await noteFrame(csp, blank.id).locator(".delete").click();
 await settle(csp);
 assert.equal((await store()).some((n) => n.id === blank.id), false);
 step("empty note deletes without confirmation");

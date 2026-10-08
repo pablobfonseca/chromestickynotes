@@ -1,5 +1,6 @@
 (async () => {
-  const id = new URLSearchParams(location.search).get("id");
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
   const embedder = location.ancestorOrigins[0];
   let note = id && (await StickyNotes.loadNote(id));
   // Only the page a note is stuck on may show it, and only inside a frame.
@@ -48,17 +49,8 @@
   bar.addEventListener("pointerdown", (down) => {
     if (down.button !== 0 || down.target.closest("button")) return;
     down.preventDefault();
-    const drag = (move) => send({ type: "drag", dx: move.screenX - down.screenX, dy: move.screenY - down.screenY });
-    const drop = () => {
-      bar.removeEventListener("pointermove", drag);
-      el.classList.remove("dragging");
-      send({ type: "drop" });
-    };
-    bar.setPointerCapture(down.pointerId);
-    el.classList.add("dragging");
-    bar.addEventListener("pointermove", drag);
-    bar.addEventListener("lostpointercapture", drop, { once: true });
-    send({ type: "grab" });
+    // Pointer events stop reaching a frame that moves under them, so the parent runs the drag.
+    send({ type: "grab", x: down.clientX, y: down.clientY });
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -81,5 +73,5 @@
   document.body.append(el);
   paint();
   new ResizeObserver(() => send({ type: "size", height: el.offsetHeight })).observe(el);
-  if (document.hasFocus()) focusTextarea();
+  if (params.has("focus")) textarea.focus();
 })();
