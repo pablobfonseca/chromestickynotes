@@ -126,7 +126,7 @@ const brokered = await extensionPage.evaluate(async ([tabId, foreign]) => {
         other: await ask({ type: "get-notes", url: "https://other.test/" }),
         steal: await ask({ type: "save-note", note: { ...note, id: foreign } }),
         plant: await ask({ type: "save-note", note: { ...note, id: "22222222-2222-4222-8222-222222222222", url: "https://other.test/" } }),
-        remove: await ask({ type: "delete-note", id: foreign }),
+        move: await ask({ type: "move-note", id: foreign, x: 5, y: 5 }),
       };
     },
   });
@@ -137,7 +137,7 @@ assert.deepEqual(brokered, {
   other: { ok: false },
   steal: { ok: false },
   plant: { ok: false },
-  remove: { ok: false },
+  move: { ok: false },
 });
 const stored = await extensionPage.evaluate(() => chrome.storage.local.get(null));
 assert.equal(Object.keys(stored).length, 4);

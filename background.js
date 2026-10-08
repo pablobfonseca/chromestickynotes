@@ -27,9 +27,9 @@ const broker = {
     await StickyNotes.saveNote(valid);
     return { ok: true };
   },
-  async "delete-note"({ id }, sender) {
-    if (typeof id !== "string" || !(await ownsNote(sender, id))) return { ok: false };
-    await StickyNotes.deleteNote(id);
+  async "move-note"({ id, x, y }, sender) {
+    if (typeof id !== "string" || ![x, y].every(Number.isFinite) || !(await ownsNote(sender, id))) return { ok: false };
+    await StickyNotes.patchNote(id, { x, y });
     return { ok: true };
   },
 };

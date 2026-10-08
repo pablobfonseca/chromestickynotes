@@ -14,7 +14,7 @@ There is no build step. Chrome 140 or newer is required.
 - Press `Alt+Shift+N` (`⌥⇧N` on macOS), or click the toolbar icon and then **New note**, to stick a note on the current page.
 - Type in it. Drag it by its top edge. Hover it to change its color or delete it.
 - The note stays on that page and shows up again on your next visit.
-- If a note can't be saved (for example, the extension's storage is full), it says **Not saved** until a later save works. Copy its text before leaving the page.
+- If a note's text or colour can't be saved (for example, the extension's storage is full), it says **Not saved** until a later save works. Copy its text before leaving the page.
 - The toolbar icon shows how many notes the current page has.
 - The toolbar popup lists every note, grouped by page, with a link back to each page.
 
@@ -22,7 +22,7 @@ A page is identified by its URL without the `#fragment` and tracking parameters 
 
 Notes are stored in `chrome.storage.local`. They stay on this machine and are never sent anywhere. The script that runs on a web page cannot read that storage: it asks the extension's service worker, which hands a page only the notes on its own origin and accepts only notes for it.
 
-A note lives in the DOM of the page it is stuck on, so that page's scripts can read it (through `window.find`, or by watching keystrokes). Don't put secrets in a note on a site you don't trust.
+Each note is drawn in its own extension frame, so the page's scripts cannot read its text or see what you type into it. The page can still tell that a note is there, and a page that removes the frame hides the note until the next visit.
 
 ## Develop
 
@@ -42,7 +42,8 @@ npm run e2e
 | `lib/notes.js` | Note model, validation and storage, shared by every context |
 | `lib/ui.js` | DOM helpers and styles shared by the page and the popup |
 | `lib/tabs.js` | Asking a tab to add a note, injecting the content script if it is missing |
-| `content/` | The notes rendered on web pages, inside a closed shadow root |
+| `content/` | Keeps one extension frame per note on the page, inside a closed shadow root, and moves it |
+| `note/` | The note itself: paper, text and colour, drawn in a frame the page cannot read |
 | `popup/` | The toolbar popup |
 | `background.js` | The keyboard shortcut, the toolbar badge and the storage broker |
 

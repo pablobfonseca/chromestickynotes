@@ -19,7 +19,7 @@ const server = http.createServer((req, res) => {
   res.end(`<!doctype html><title>Page ${name}</title>
     <body ${style("margin:0;background:#fff;font:16px system-ui")}>
     <h1 ${style("margin:40px")}>Page ${name}</h1><p ${style("margin:40px;height:2000px")}>Lorem ipsum</p>
-    ${name === "/csp" ? "" : `<script>window.__keys=[];document.addEventListener("keydown",e=>__keys.push(e.key))</script>`}`);
+    ${name === "/csp" ? "" : `<script>window.__keys=[];document.addEventListener("keydown",e=>__keys.push(e.key),true)</script>`}`);
 });
 await new Promise((resolve) => server.listen(0, resolve));
 const base = `http://localhost:${server.address().port}`;
@@ -48,6 +48,7 @@ const addNote = async (page) => {
 };
 const hostAt = (page, x, y) =>
   page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.hasAttribute("data-sticky-notes-host") ?? false, [x, y]);
+const noteFrame = (page, id) => page.frames().find((frame) => frame.url().includes(`id=${id}`));
 const hasHost = (page) => page.evaluate(() => !!document.querySelector("[data-sticky-notes-host]"));
 const settle = (page) => page.waitForTimeout(250);
 const step = (name) => console.log(`ok  ${name}`);
@@ -72,8 +73,14 @@ assert.deepEqual(await page.evaluate(() => window.__keys), []);
 await page.screenshot({ path: `${SHOTS}/1-added.png` });
 step("add note, type, persisted; page saw no keydown events");
 await page.mouse.click(100, 400);
-console.log("    page-side window.find('Buy milk') ->", await page.evaluate(() => window.find("Buy milk")));
-console.log("    page-side window.find('zzzz') ->", await page.evaluate(() => window.find("zzzz")));
+assert.equal(await page.evaluate(() => window.find("Buy milk")), false);
+assert.equal(await page.evaluate(() => document.documentElement.innerText.includes("Buy milk")), false);
+assert.equal(
+  page.frames().some((frame) => frame.url().startsWith("chrome-extension://")),
+  true,
+  "note renders in an extension frame",
+);
+step("page cannot find note text; note lives in an extension frame");
 
 await page.mouse.move(note.x + 170, note.y + 17);
 await page.mouse.down();
@@ -100,6 +107,7 @@ await page.mouse.move(note.x + 170, note.y + 17);
 await page.mouse.down();
 await page.mouse.move(500, 300, { steps: 4 });
 await page.mouse.up();
+await settle(page);
 [note] = await store();
 
 await page.mouse.click(note.x + 6 + 22 + 11, note.y + 17);
@@ -193,14 +201,18 @@ assert.equal(await popup.locator("#status").isVisible(), true);
 step("popup reports pages that cannot hold notes");
 
 await csp.bringToFront();
+// Headless Chromium misroutes clicks into note frames once their tab has been in the background; real Chrome does not.
+await csp.reload();
+await settle(csp);
 let notes = (await store()).sort((a, b) => a.createdAt - b.createdAt);
 const target = notes[0];
-await csp.mouse.move(target.x + 120, target.y + 60);
-await csp.mouse.click(target.x + 240 - 6 - 12, target.y + 17);
+const targetDelete = noteFrame(csp, target.id).locator(".delete");
+await targetDelete.click();
 await settle(csp);
+assert.equal(await targetDelete.getAttribute("aria-label"), "Confirm delete");
 assert.equal((await store()).length, 2);
 await csp.screenshot({ path: `${SHOTS}/9-armed.png` });
-await csp.mouse.click(target.x + 240 - 6 - 30, target.y + 17);
+await targetDelete.click();
 await settle(csp);
 notes = await store();
 assert.deepEqual(notes.map((n) => n.id), [notes[0].id]);
@@ -210,7 +222,7 @@ step("on-page delete asks once, then deletes");
 assert.equal(await addNote(csp), true);
 await settle(csp);
 const blank = (await store()).find((n) => n.text === "");
-await csp.mouse.click(blank.x + 240 - 6 - 12, blank.y + 17);
+await noteFrame(csp, blank.id).locator(".delete").click();
 await settle(csp);
 assert.equal((await store()).some((n) => n.id === blank.id), false);
 step("empty note deletes without confirmation");
@@ -228,6 +240,14 @@ const full = await context.newPage();
 watch(full);
 await full.goto(`${base}/full`);
 await settle(full);
+const storedNotes = async () => (await store()).filter((item) => typeof item === "object");
+// The note's frame loads its record from storage, so the note must exist before storage fills up.
+assert.equal(await addNote(full), true);
+await settle(full);
+await full.keyboard.type("Kept");
+await settle(full);
+const [kept] = await storedNotes();
+const unsaved = noteFrame(full, kept.id).locator(".status");
 const freeBytes = await sw.evaluate(async () => {
   const { QUOTA_BYTES } = chrome.storage.local;
   const used = await chrome.storage.local.getBytesInUse(null);
@@ -235,31 +255,32 @@ const freeBytes = await sw.evaluate(async () => {
   return QUOTA_BYTES - (await chrome.storage.local.getBytesInUse(null));
 });
 assert.ok(freeBytes < 100, `storage should be nearly full, ${freeBytes} bytes free`);
-const cdp = await context.newCDPSession(full);
-const showsUnsaved = async () => {
-  const { nodes } = await cdp.send("Accessibility.getFullAXTree");
-  return nodes.some((node) => String(node.name?.value ?? "").includes("Not saved."));
-};
-const storedNotes = async () => (await store()).filter((item) => typeof item === "object");
-assert.equal(await addNote(full), true);
-await settle(full);
-await full.keyboard.type("Kept after a failed save");
-await settle(full);
-assert.equal((await storedNotes()).length, 0);
-assert.equal(await showsUnsaved(), true);
+const overflow = " after a failed save".repeat(6);
+await full.keyboard.type(overflow);
+// Each keystroke queues a save against nearly full storage; the status follows the newest one once it settles.
+await unsaved.filter({ hasText: /^Not saved\./ }).waitFor();
+assert.notEqual((await storedNotes())[0].text, `Kept${overflow}`);
 await full.screenshot({ path: `${SHOTS}/11-not-saved.png` });
 await sw.evaluate(() => chrome.storage.local.remove("filler"));
-const elsewhere = { id: "33333333-3333-4333-8333-333333333333", url: "https://other.test/", title: "", text: "", color: "yellow", x: 0, y: 0, createdAt: 1 };
-await sw.evaluate((note) => chrome.storage.local.set({ [`note:${note.id}`]: note }), elsewhere);
-await settle(full);
-await sw.evaluate((id) => chrome.storage.local.remove(`note:${id}`), elsewhere.id);
-await settle(full);
-assert.equal(await showsUnsaved(), true);
 await full.keyboard.type(", then saved");
+await unsaved.waitFor({ state: "hidden" });
 await settle(full);
-assert.deepEqual((await storedNotes()).map((n) => n.text), ["Kept after a failed save, then saved"]);
-assert.equal(await showsUnsaved(), false);
+assert.deepEqual((await storedNotes()).map((n) => n.text), [`Kept${overflow}, then saved`]);
 step("failed save shows on the note and clears once a save succeeds");
+
+[note] = await storedNotes();
+await full.mouse.move(note.x + 170, note.y + 17);
+await full.mouse.down();
+await full.mouse.move(400, 300, { steps: 4 });
+assert.equal(await hostAt(full, 100, 600), true, "the drag overlay covers the page");
+// A release outside the window never reaches the page; the next move it sees has no button held.
+const fullCdp = await context.newCDPSession(full);
+await fullCdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 300, y: 300, buttons: 0 });
+await settle(full);
+assert.equal(await hostAt(full, 100, 600), false, "the page is clickable again");
+assert.notDeepEqual(((await storedNotes())[0]).x, note.x);
+await full.mouse.up();
+step("drag released outside the window ends on the next move");
 
 assert.deepEqual(errors, []);
 step("no console or page errors");

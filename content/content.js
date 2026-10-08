@@ -3,11 +3,16 @@
   globalThis.stickyNotesRunning = true;
 
   const HOST_ATTRIBUTE = "data-sticky-notes-host";
-  const UNSAVED_MESSAGE = "Not saved. Copy your text before you leave this page.";
+  const NOTE_WIDTH = 240;
+  const NOTE_HEIGHT = 126;
+  const NOTE_URL = chrome.runtime.getURL("note/note.html");
+  // Chrome may resolve the per-session dynamic URL to the static one when it loads the frame.
+  const NOTE_ORIGINS = new Set([new URL(NOTE_URL).origin, `chrome-extension://${chrome.runtime.id}`]);
   const entries = new Map();
   let pageKey = StickyNotes.pageKey(location.href);
   let root;
   let reportedCount;
+  let focusNoteId;
   let saving = Promise.resolve();
 
   // A script orphaned by an extension reload cannot reach the worker; it then behaves as a page with no notes.
@@ -27,13 +32,13 @@
     const host = document.createElement("div");
     host.setAttribute(HOST_ATTRIBUTE, "");
     root = host.attachShadow({ mode: "closed" });
-    adoptStyles(root, SHARED_CSS + NOTE_CSS);
-    // Typing in a note must not trigger the page's own keyboard shortcuts.
-    for (const type of ["keydown", "keypress", "keyup"]) {
-      root.addEventListener(type, (event) => event.stopPropagation());
-    }
+    adoptStyles(root, NOTE_CSS);
     document.documentElement.append(host);
     return root;
+  }
+
+  function viewport() {
+    return { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
   }
 
   function tilt(id) {
@@ -41,93 +46,94 @@
   }
 
   function place(entry, position = entry.note) {
-    const clamped = StickyNotes.clampPosition(
-      position,
-      { width: entry.el.offsetWidth, height: entry.el.offsetHeight },
-      { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight },
-    );
+    const clamped = StickyNotes.clampPosition(position, { width: NOTE_WIDTH, height: entry.el.offsetHeight }, viewport());
     entry.el.style.translate = `${clamped.x}px ${clamped.y}px`;
     return clamped;
   }
 
-  function paint(entry) {
-    entry.el.dataset.color = entry.note.color;
-    for (const swatch of entry.swatches) {
-      swatch.ariaPressed = String(swatch.dataset.color === entry.note.color);
-    }
-    place(entry);
-  }
-
-  // Writes resolve in order, so only the newest attempt decides.
-  function save(entry) {
-    const attempt = ++entry.saves;
-    saving = broker({ type: "save-note", note: entry.note });
-    saving.then(({ ok }) => {
-      if (attempt !== entry.saves) return;
-      entry.unsaved = !ok;
-      entry.status.textContent = ok ? "" : UNSAVED_MESSAGE;
-    });
-  }
-
-  function update(entry, patch) {
-    entry.note = { ...entry.note, ...patch };
-    paint(entry);
-    save(entry);
-  }
-
-  function enableDrag(entry, handle) {
-    handle.addEventListener("pointerdown", (down) => {
-      if (down.button !== 0 || down.target.closest("button")) return;
-      down.preventDefault();
-      const start = place(entry);
-      const drag = (move) => {
-        const position = { x: start.x + move.clientX - down.clientX, y: start.y + move.clientY - down.clientY };
-        entry.note = { ...entry.note, ...place(entry, position) };
-      };
-      const drop = () => {
-        handle.removeEventListener("pointermove", drag);
-        entry.el.classList.remove("dragging");
-        save(entry);
-      };
-      handle.setPointerCapture(down.pointerId);
-      entry.el.classList.add("dragging");
-      handle.addEventListener("pointermove", drag);
-      handle.addEventListener("lostpointercapture", drop, { once: true });
-    });
-  }
-
   function render(note) {
-    const textarea = h("textarea", { value: note.text, placeholder: "Note to self…", ariaLabel: "Sticky note" });
-    const swatches = StickyNotes.COLORS.map((color) =>
-      h("button", {
-        type: "button",
-        className: "swatch",
-        ariaLabel: `Make note ${color}`,
-        dataset: { color },
-        onclick: () => update(entry, { color }),
-      }),
-    );
-    const bar = h(
-      "div",
-      { className: "bar" },
-      h("div", { className: "swatches" }, ...swatches),
-      deleteButton(
-        () => broker({ type: "delete-note", id: note.id }),
-        () => textarea.value.trim() !== "",
-      ),
-    );
-    const status = h("p", { className: "status", role: "alert" });
-    const el = h("div", { className: "note" }, bar, textarea, status);
+    // A cross-origin frame never sees the parent's iframe.focus(), so a new note is told to focus itself.
+    const focus = note.id === focusNoteId ? "&focus" : "";
+    if (focus) focusNoteId = undefined;
+    const el = h("iframe", { src: `${NOTE_URL}?id=${encodeURIComponent(note.id)}${focus}`, title: "Sticky note" });
     el.style.setProperty("--tilt", `${tilt(note.id)}deg`);
-    const entry = { note, el, textarea, swatches, status, saves: 0 };
-
-    textarea.addEventListener("input", () => update(entry, { text: textarea.value }));
-    enableDrag(entry, bar);
+    const entry = { note, el };
     entries.set(note.id, entry);
     getRoot().append(el);
-    paint(entry);
+    place(entry);
     return entry;
   }
+
+  function entryFor(event) {
+    if (!NOTE_ORIGINS.has(event.origin)) return;
+    for (const entry of entries.values()) {
+      if (entry.el.contentWindow === event.source) return entry;
+    }
+  }
+
+  // The frame reports the grab in its own coordinates; its tilt and scale map that point onto the page.
+  function pagePoint(entry, { x, y }) {
+    const { rotate, scale } = getComputedStyle(entry.el);
+    const center = { x: NOTE_WIDTH / 2, y: entry.el.offsetHeight / 2 };
+    return new DOMMatrix()
+      .translate(entry.start.x + center.x, entry.start.y + center.y)
+      .rotate(parseFloat(rotate) || 0)
+      .scale(parseFloat(scale) || 1)
+      .transformPoint({ x: x - center.x, y: y - center.y });
+  }
+
+  // Pointer events stop reaching a frame that moves under them, so this document runs the drag behind an overlay that
+  // keeps the pointer off the frame. A press that began in the frame cannot be captured here: moves outside the viewport
+  // are lost and only the release arrives, so the release places the note too. A release outside the window may never
+  // arrive at all; the next move with no button held ends the drag instead.
+  function drag(entry, grab) {
+    if (entry.start) return;
+    entry.start = place(entry);
+    const down = pagePoint(entry, grab);
+    const overlay = h("div", { className: "drag-overlay" });
+    const follow = (event) => {
+      const position = {
+        x: entry.start.x + Math.round(event.clientX - down.x),
+        y: entry.start.y + Math.round(event.clientY - down.y),
+      };
+      entry.note = { ...entry.note, ...place(entry, position) };
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", drop, true);
+      overlay.remove();
+      entry.start = undefined;
+      entry.el.classList.remove("dragging");
+      saving = broker({ type: "move-note", id: entry.note.id, x: entry.note.x, y: entry.note.y });
+    };
+    // The page can dispatch pointer events on its own window; only the user moves a note.
+    const move = (event) => {
+      if (!event.isTrusted) return;
+      if (event.buttons) follow(event);
+      else finish();
+    };
+    const drop = (event) => {
+      if (!event.isTrusted) return;
+      follow(event);
+      finish();
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", drop, true);
+    getRoot().append(overlay);
+    entry.el.classList.add("dragging");
+  }
+
+  window.addEventListener("message", (event) => {
+    const entry = entryFor(event);
+    if (!entry) return;
+    const { type, height, x, y } = event.data ?? {};
+    if (type === "size" && Number.isFinite(height)) {
+      entry.el.style.height = `${height}px`;
+      place(entry);
+    } else if (type === "grab" && Number.isFinite(x) && Number.isFinite(y)) {
+      drag(entry, { x, y });
+    }
+  });
 
   function sync({ id, note }) {
     const entry = entries.get(id);
@@ -140,11 +146,9 @@
       render(note);
       return;
     }
-    // Storage echoes of earlier keystrokes arrive late; while the user types, the textarea is the truth.
-    const editing = document.hasFocus() && root.activeElement === entry.textarea;
-    entry.note = editing ? { ...note, text: entry.note.text } : note;
-    if (!editing) entry.textarea.value = note.text;
-    paint(entry);
+    // The frame patches text and color while a drag is in flight; the position being dragged is the truth.
+    entry.note = entry.start ? { ...note, x: entry.note.x, y: entry.note.y } : note;
+    if (!entry.start) place(entry);
   }
 
   // The service worker shows this count on the toolbar icon. Storage echoes of every keystroke land here, so only changes are sent.
@@ -163,13 +167,8 @@
     const known = [...entries.keys()];
     const { notes = [] } = await broker({ type: "get-notes", url: location.href });
     const current = new Set(notes.map((note) => note.id));
-    // A note whose latest save failed exists only here until the user leaves its page; the worker's answer must not remove or revert it.
-    const unsaved = (id) => {
-      const entry = entries.get(id);
-      return entry?.unsaved && StickyNotes.pageKey(entry.note.url) === pageKey;
-    };
-    for (const id of known) if (!current.has(id) && !unsaved(id)) sync({ id });
-    notes.filter((note) => !unsaved(note.id)).forEach((note) => sync({ id: note.id, note }));
+    for (const id of known) if (!current.has(id)) sync({ id });
+    notes.forEach((note) => sync({ id: note.id, note }));
     reportCount();
   }
 
@@ -178,12 +177,22 @@
     return refresh();
   }
 
-  function addNote() {
+  async function addNote() {
     const cascade = (entries.size % 5) * 28;
-    const entry = render(StickyNotes.createNote({ url: location.href, title: document.title, x: 0, y: 0 }));
-    const x = document.documentElement.clientWidth - entry.el.offsetWidth - 24 - cascade;
-    update(entry, place(entry, { x, y: 24 + cascade }));
-    entry.textarea.focus();
+    const position = StickyNotes.clampPosition(
+      { x: viewport().width - NOTE_WIDTH - 24 - cascade, y: 24 + cascade },
+      { width: NOTE_WIDTH, height: NOTE_HEIGHT },
+      viewport(),
+    );
+    const note = StickyNotes.createNote({ url: location.href, title: document.title, ...position });
+    // The storage echo of this save may render the frame before addNote does.
+    focusNoteId = note.id;
+    // The frame reads its record when it loads, so the record must exist before the frame does.
+    const { ok } = await broker({ type: "save-note", note });
+    if (!ok) return;
+    const entry = entries.get(note.id) ?? render(note);
+    entry.el.focus();
+    entry.el.addEventListener("load", () => entry.el.focus(), { once: true });
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
