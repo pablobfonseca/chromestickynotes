@@ -107,6 +107,7 @@ await page.mouse.move(note.x + 170, note.y + 17);
 await page.mouse.down();
 await page.mouse.move(500, 300, { steps: 4 });
 await page.mouse.up();
+await settle(page);
 [note] = await store();
 
 await page.mouse.click(note.x + 6 + 22 + 11, note.y + 17);
@@ -230,6 +231,14 @@ const full = await context.newPage();
 watch(full);
 await full.goto(`${base}/full`);
 await settle(full);
+const storedNotes = async () => (await store()).filter((item) => typeof item === "object");
+// The note's frame loads its record from storage, so the note must exist before storage fills up.
+assert.equal(await addNote(full), true);
+await settle(full);
+await full.keyboard.type("Kept");
+await settle(full);
+const [kept] = await storedNotes();
+const unsaved = noteFrame(full, kept.id).locator(".status");
 const freeBytes = await sw.evaluate(async () => {
   const { QUOTA_BYTES } = chrome.storage.local;
   const used = await chrome.storage.local.getBytesInUse(null);
@@ -237,24 +246,17 @@ const freeBytes = await sw.evaluate(async () => {
   return QUOTA_BYTES - (await chrome.storage.local.getBytesInUse(null));
 });
 assert.ok(freeBytes < 100, `storage should be nearly full, ${freeBytes} bytes free`);
-const cdp = await context.newCDPSession(full);
-const showsUnsaved = async () => {
-  const { nodes } = await cdp.send("Accessibility.getFullAXTree");
-  return nodes.some((node) => String(node.name?.value ?? "").includes("Not saved."));
-};
-const storedNotes = async () => (await store()).filter((item) => typeof item === "object");
-assert.equal(await addNote(full), true);
-await settle(full);
-await full.keyboard.type("Kept after a failed save");
-await settle(full);
-assert.equal((await storedNotes()).length, 0);
-assert.equal(await showsUnsaved(), true);
+const overflow = " after a failed save".repeat(6);
+await full.keyboard.type(overflow);
+// Each keystroke queues a save against nearly full storage; the status follows the newest one once it settles.
+await unsaved.filter({ hasText: /^Not saved\./ }).waitFor();
+assert.notEqual((await storedNotes())[0].text, `Kept${overflow}`);
 await full.screenshot({ path: `${SHOTS}/11-not-saved.png` });
 await sw.evaluate(() => chrome.storage.local.remove("filler"));
 await full.keyboard.type(", then saved");
+await unsaved.waitFor({ state: "hidden" });
 await settle(full);
-assert.deepEqual((await storedNotes()).map((n) => n.text), ["Kept after a failed save, then saved"]);
-assert.equal(await showsUnsaved(), false);
+assert.deepEqual((await storedNotes()).map((n) => n.text), [`Kept${overflow}, then saved`]);
 step("failed save shows on the note and clears once a save succeeds");
 
 assert.deepEqual(errors, []);

@@ -1,4 +1,5 @@
 (async () => {
+  const UNSAVED_MESSAGE = "Not saved. Copy your text before you leave this page.";
   const params = new URLSearchParams(location.search);
   const id = params.get("id");
   const embedder = location.ancestorOrigins[0];
@@ -29,7 +30,9 @@
       () => textarea.value.trim() !== "",
     ),
   );
-  const el = h("div", { className: "note" }, bar, textarea);
+  const status = h("p", { className: "status", role: "alert" });
+  const el = h("div", { className: "note" }, bar, textarea, status);
+  let saves = 0;
 
   function paint() {
     el.dataset.color = note.color;
@@ -38,10 +41,22 @@
     }
   }
 
+  // Writes resolve in order, so only the newest attempt decides. Both fields go every time, so a later save repairs a failed one.
+  function save() {
+    const attempt = ++saves;
+    const settle = (saved) => {
+      if (attempt === saves) status.textContent = saved ? "" : UNSAVED_MESSAGE;
+    };
+    StickyNotes.patchNote(note.id, { text: note.text, color: note.color }).then(
+      () => settle(true),
+      () => settle(false),
+    );
+  }
+
   function update(patch) {
     note = { ...note, ...patch };
     paint();
-    StickyNotes.patchNote(note.id, patch);
+    save();
   }
 
   textarea.addEventListener("input", () => update({ text: textarea.value }));
