@@ -13,6 +13,16 @@
   let root;
   let reportedCount;
   let focusNoteId;
+  let saving = Promise.resolve();
+
+  // A script orphaned by an extension reload cannot reach the worker; it then behaves as a page with no notes.
+  async function broker(message) {
+    try {
+      return (await chrome.runtime.sendMessage(message)) ?? { ok: false };
+    } catch {
+      return { ok: false };
+    }
+  }
 
   // A reloaded or updated extension injects this script again; drop the UI its dead predecessor left behind.
   document.querySelector(`[${HOST_ATTRIBUTE}]`)?.remove();
@@ -94,7 +104,7 @@
       overlay.remove();
       entry.start = undefined;
       entry.el.classList.remove("dragging");
-      StickyNotes.patchNote(entry.note.id, { x: entry.note.x, y: entry.note.y });
+      saving = broker({ type: "move-note", id: entry.note.id, x: entry.note.x, y: entry.note.y });
     };
     // The page can dispatch pointer events on its own window; only the user moves a note.
     const move = (event) => {
@@ -151,11 +161,20 @@
     } catch {}
   }
 
-  async function showPage() {
-    pageKey = StickyNotes.pageKey(location.href);
-    for (const id of entries.keys()) sync({ id });
-    for (const note of await StickyNotes.loadNotes()) sync({ id: note.id, note });
+  // A note added while the fetch is in flight is not in the answer yet, so only notes known before it can have been deleted.
+  async function refresh() {
+    await saving;
+    const known = [...entries.keys()];
+    const { notes = [] } = await broker({ type: "get-notes", url: location.href });
+    const current = new Set(notes.map((note) => note.id));
+    for (const id of known) if (!current.has(id)) sync({ id });
+    notes.forEach((note) => sync({ id: note.id, note }));
     reportCount();
+  }
+
+  function showPage() {
+    pageKey = StickyNotes.pageKey(location.href);
+    return refresh();
   }
 
   async function addNote() {
@@ -169,19 +188,15 @@
     // The storage echo of this save may render the frame before addNote does.
     focusNoteId = note.id;
     // The frame reads its record when it loads, so the record must exist before the frame does.
-    await StickyNotes.saveNote(note);
+    const { ok } = await broker({ type: "save-note", note });
+    if (!ok) return;
     const entry = entries.get(note.id) ?? render(note);
     entry.el.focus();
     entry.el.addEventListener("load", () => entry.el.focus(), { once: true });
   }
 
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local") return;
-    StickyNotes.noteChanges(changes).forEach(sync);
-    reportCount();
-  });
-
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "notes-changed") refresh();
     if (message?.type !== "add-note") return;
     // The fallback injection can land on about:, blob: or file: tabs, where no script would bring the note back.
     const supported = /^https?:$/.test(location.protocol);

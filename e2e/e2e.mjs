@@ -174,6 +174,11 @@ await popup.screenshot({ path: `${SHOTS}/7-popup-dark.png` });
 await popup.emulateMedia({ colorScheme: "light" });
 step("popup lists notes grouped by page, newest page first");
 
+await page.bringToFront();
+await page.evaluate(() => history.pushState({}, "", "/a"));
+await settle(page);
+assert.equal(await hostAt(page, note.x + 120, note.y + 60), true);
+
 const firstDelete = popup.locator(".page").nth(1).locator(".delete");
 await popup.locator(".page").nth(1).locator(".note").hover();
 await firstDelete.click();
@@ -185,6 +190,10 @@ await settle(popup);
 assert.equal((await store()).length, 2);
 assert.deepEqual(await popup.locator(".page-title").allTextContents(), ["Page /csp"]);
 step("popup delete asks once, then deletes");
+await settle(page);
+assert.equal(await hostAt(page, note.x + 120, note.y + 60), false);
+step("popup delete reaches the page through the worker");
+await popup.bringToFront();
 
 await popup.locator("#add").click();
 await settle(popup);

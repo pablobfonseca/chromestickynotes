@@ -140,6 +140,58 @@ test("badgeText shows the count, blank for none, capped at 99+", () => {
   for (const invalid of [-1, 1.5, "3", undefined]) assert.equal(StickyNotes.badgeText(invalid), "");
 });
 
+test("validNote accepts what createNote makes and drops unknown keys", () => {
+  const note = StickyNotes.createNote({ url: "https://example.com/a?utm_source=x#top", title: "A", x: 1, y: 2 });
+  assert.deepEqual(StickyNotes.validNote({ ...note, extra: true }), note);
+});
+
+test("validNote rejects a malformed note", () => {
+  const note = StickyNotes.createNote({ url: "https://example.com/a", title: "A", x: 1, y: 2 });
+  for (const bad of [
+    null,
+    "note",
+    { ...note, id: "../x" },
+    { ...note, url: "file:///etc/passwd" },
+    { ...note, url: "nope" },
+    { ...note, color: "red" },
+    { ...note, x: "1" },
+    { ...note, y: NaN },
+    { ...note, text: 1 },
+    { ...note, title: 3 },
+    { ...note, createdAt: "now" },
+  ]) {
+    assert.equal(StickyNotes.validNote(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("validNote bounds the title and normalises the url", () => {
+  const note = StickyNotes.createNote({ url: "https://example.com/a", title: "A", x: 1, y: 2 });
+  const valid = StickyNotes.validNote({ ...note, title: "x".repeat(5000), url: "https://example.com/a?gclid=1#f" });
+  assert.equal(valid.title.length, 200);
+  assert.equal(valid.url, "https://example.com/a");
+});
+
+test("sameOrigin compares the url's origin and never throws", () => {
+  assert.equal(StickyNotes.sameOrigin("https://a.test/x?y#z", "https://a.test"), true);
+  assert.equal(StickyNotes.sameOrigin("https://a.test:8443/", "https://a.test"), false);
+  assert.equal(StickyNotes.sameOrigin("http://a.test/", "https://a.test"), false);
+  assert.equal(StickyNotes.sameOrigin("not a url", "https://a.test"), false);
+  assert.equal(StickyNotes.sameOrigin("https://a.test/", undefined), false);
+});
+
+test("notesForPage returns the page's notes oldest first, legacy tracked urls included", () => {
+  const notes = StickyNotes.notesForPage(
+    {
+      "note:a": { id: "a", url: "https://a.test/p", createdAt: 2 },
+      "note:b": { id: "b", url: "https://a.test/p?utm_source=x", createdAt: 1 },
+      "note:c": { id: "c", url: "https://a.test/q", createdAt: 3 },
+      settings: {},
+    },
+    "https://a.test/p",
+  );
+  assert.deepEqual(notes.map((note) => note.id), ["b", "a"]);
+});
+
 function fakeStorage(store) {
   globalThis.chrome = {
     storage: {
