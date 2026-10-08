@@ -95,6 +95,56 @@ assert.equal(await hosts(), 1);
 await page.screenshot({ path: `${SHOTS}/11-after-reload.png` });
 console.log("ok  orphaned page gets a fresh script, stale UI replaced");
 
+// A content script runs in the page's renderer: storage must refuse it, and the worker must hand it only its own origin's notes.
+const pageTabId = await extensionPage.evaluate(
+  async (base) => (await chrome.tabs.query({})).find((tab) => tab.url?.startsWith(base)).id,
+  base,
+);
+const direct = await extensionPage.evaluate(async (tabId) => {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => chrome.storage.local.get(null).then(() => "readable", (error) => error.message),
+  });
+  return result;
+}, pageTabId);
+assert.equal(direct, "Access to storage is not allowed from this context.");
+console.log("ok  content script cannot reach storage directly");
+
+const FOREIGN = "11111111-1111-4111-8111-111111111111";
+const foreignNote = { id: FOREIGN, url: "https://other.test/", title: "Other", text: "foreign", color: "yellow", x: 0, y: 0, createdAt: 1 };
+await extensionPage.evaluate((note) => chrome.storage.local.set({ [`note:${note.id}`]: note }), foreignNote);
+const brokered = await extensionPage.evaluate(async ([tabId, foreign]) => {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    args: [foreign],
+    func: async (foreign) => {
+      const ask = (message) => chrome.runtime.sendMessage(message);
+      const note = { url: location.href, title: "", text: "forged", color: "pink", x: 0, y: 0, createdAt: 1 };
+      const own = await ask({ type: "get-notes", url: location.href });
+      return {
+        ownUrls: own.notes.map((entry) => entry.url),
+        other: await ask({ type: "get-notes", url: "https://other.test/" }),
+        steal: await ask({ type: "save-note", note: { ...note, id: foreign } }),
+        plant: await ask({ type: "save-note", note: { ...note, id: "22222222-2222-4222-8222-222222222222", url: "https://other.test/" } }),
+        remove: await ask({ type: "delete-note", id: foreign }),
+      };
+    },
+  });
+  return result;
+}, [pageTabId, FOREIGN]);
+assert.deepEqual(brokered, {
+  ownUrls: [`${base}/`, `${base}/`, `${base}/`],
+  other: { ok: false },
+  steal: { ok: false },
+  plant: { ok: false },
+  remove: { ok: false },
+});
+const stored = await extensionPage.evaluate(() => chrome.storage.local.get(null));
+assert.equal(Object.keys(stored).length, 4);
+assert.deepEqual(stored[`note:${FOREIGN}`], foreignNote);
+await extensionPage.evaluate((id) => chrome.storage.local.remove(`note:${id}`), FOREIGN);
+console.log("ok  worker hands a content script only its origin's notes");
+
 // The content script's http(s) guard: an about:blank tab accepts the injection (so Chrome is not the one
 // refusing) but must answer the message with ok: false and keep the note out of storage.
 // The extension cannot see this tab's url, so the tab is found by what a script sees there.
