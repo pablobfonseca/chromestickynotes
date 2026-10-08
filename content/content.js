@@ -63,7 +63,9 @@
     const attempt = ++entry.saves;
     saving = broker({ type: "save-note", note: entry.note });
     saving.then(({ ok }) => {
-      if (attempt === entry.saves) entry.status.textContent = ok ? "" : UNSAVED_MESSAGE;
+      if (attempt !== entry.saves) return;
+      entry.unsaved = !ok;
+      entry.status.textContent = ok ? "" : UNSAVED_MESSAGE;
     });
   }
 
@@ -161,8 +163,13 @@
     const known = [...entries.keys()];
     const { notes = [] } = await broker({ type: "get-notes", url: location.href });
     const current = new Set(notes.map((note) => note.id));
-    for (const id of known) if (!current.has(id)) sync({ id });
-    notes.forEach((note) => sync({ id: note.id, note }));
+    // A note whose latest save failed exists only here until the user leaves its page; the worker's answer must not remove or revert it.
+    const unsaved = (id) => {
+      const entry = entries.get(id);
+      return entry?.unsaved && StickyNotes.pageKey(entry.note.url) === pageKey;
+    };
+    for (const id of known) if (!current.has(id) && !unsaved(id)) sync({ id });
+    notes.filter((note) => !unsaved(note.id)).forEach((note) => sync({ id: note.id, note }));
     reportCount();
   }
 
