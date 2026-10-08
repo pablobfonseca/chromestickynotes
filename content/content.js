@@ -80,7 +80,9 @@
     entry.start = place(entry);
     const down = pagePoint(entry, grab);
     const overlay = h("div", { className: "drag-overlay" });
+    // The page can dispatch pointer events on its own window; only the user moves a note.
     const move = (event) => {
+      if (!event.isTrusted) return;
       const position = {
         x: entry.start.x + Math.round(event.clientX - down.x),
         y: entry.start.y + Math.round(event.clientY - down.y),
@@ -88,6 +90,7 @@
       entry.note = { ...entry.note, ...place(entry, position) };
     };
     const drop = (event) => {
+      if (!event.isTrusted) return;
       move(event);
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", drop, true);
