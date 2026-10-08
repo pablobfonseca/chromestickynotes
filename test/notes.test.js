@@ -139,3 +139,36 @@ test("badgeText shows the count, blank for none, capped at 99+", () => {
   assert.equal(StickyNotes.badgeText(100), "99+");
   for (const invalid of [-1, 1.5, "3", undefined]) assert.equal(StickyNotes.badgeText(invalid), "");
 });
+
+function fakeStorage(store) {
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: async (key) => (key in store ? { [key]: store[key] } : {}),
+        set: async (items) => {
+          Object.assign(store, items);
+        },
+      },
+    },
+  };
+  return () => delete globalThis.chrome;
+}
+
+test("loadNote returns the stored note or undefined", async () => {
+  const restore = fakeStorage({ "note:a": { id: "a", text: "hi" } });
+  assert.deepEqual(await StickyNotes.loadNote("a"), { id: "a", text: "hi" });
+  assert.equal(await StickyNotes.loadNote("b"), undefined);
+  restore();
+});
+
+test("patchNote merges into the stored note and never resurrects a deleted one", async () => {
+  const store = { "note:a": { id: "a", text: "old", x: 1, y: 2 } };
+  const restore = fakeStorage(store);
+  await StickyNotes.patchNote("a", { text: "new" });
+  assert.deepEqual(store["note:a"], { id: "a", text: "new", x: 1, y: 2 });
+  await StickyNotes.patchNote("a", { x: 10, y: 20 });
+  assert.deepEqual(store["note:a"], { id: "a", text: "new", x: 10, y: 20 });
+  await StickyNotes.patchNote("b", { text: "ghost" });
+  assert.equal("note:b" in store, false);
+  restore();
+});
